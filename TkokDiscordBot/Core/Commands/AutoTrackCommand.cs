@@ -15,10 +15,12 @@ namespace TkokDiscordBot.Core.Commands
     internal class AutoTrackCommand : IBotCommand
     {
         private readonly EntClient _entClient;
+        private readonly CurrentGameStore _currentGameStore;
 
-        public AutoTrackCommand(EntClient entClient)
+        public AutoTrackCommand(EntClient entClient, CurrentGameStore currentGameStore)
         {
             _entClient = entClient;
+            _currentGameStore = currentGameStore;
         }
 
         public async Task<bool> Handle(DiscordClient sender, MessageCreateEventArgs eventArgs)
@@ -40,7 +42,7 @@ namespace TkokDiscordBot.Core.Commands
 
             if (!string.IsNullOrWhiteSpace(gameName))
             {
-                _entClient.GameInfo = new LobbyStatus(gameName);
+                _currentGameStore .Status = new LobbyStatus(gameName);
 
                 await eventArgs.Message.RespondAsync($"<:bot:379752914215763994> Detected game name. :eye: Monitoring game `{gameName}`.");
             }

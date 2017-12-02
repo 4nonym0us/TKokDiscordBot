@@ -15,8 +15,11 @@ namespace TkokDiscordBot.Dependency
             builder.RegisterType<PasteBinItemsLoader>().As<IItemsLoader>().InstancePerDependency(); //PasteBinItemsLoader|LocalFileItemsLoader
             builder.RegisterType<ItemsStore>().As<IItemsStore>().SingleInstance();
             builder.RegisterType<ItemsRepository>().As<IItemsRepository>().InstancePerDependency();
+
             builder.RegisterType<EntClient>().AsSelf().SingleInstance();
             builder.RegisterType<Bot>().AsSelf().SingleInstance();
+            builder.RegisterType<CurrentGameStore>().AsSelf().SingleInstance();
+            builder.RegisterType<GameStatusUpdater>().AsSelf().SingleInstance();
 
             var settings = new ConfigurationBuilder<ISettings>()
                 .UseAppConfig()

@@ -88,6 +88,8 @@
     <Compile Include="Core\CommandsNext\AdministrationCommands.cs" />
     <Compile Include="Dependency\CommandsModule.cs" />
     <Compile Include="Dependency\CoreModule.cs" />
+    <Compile Include="EntGaming\CurrentGameStore.cs" />
+    <Compile Include="EntGaming\GameStatusUpdater.cs" />
     <Compile Include="Enums\CommandPriority.cs" />
     <Compile Include="Core\Commands\Attributes\PriorityAttribute.cs" />
     <Compile Include="Core\Commands\AutoTrackCommand.cs" />
@@ -112,6 +114,7 @@
     <Compile Include="EntGaming\EntClient.cs" />
     <Compile Include="Enums\TkokClass.cs" />
     <Compile Include="Extensions\ContainerBuilderExtensions.cs" />
+    <Compile Include="Extensions\DateTimeExtensions.cs" />
     <Compile Include="Extensions\EnumerableExtensions.cs" />
     <Compile Include="Extensions\NullableExtensions.cs" />
     <Compile Include="Extensions\SettingsExtensions.cs" />

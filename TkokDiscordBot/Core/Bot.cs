@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -12,7 +11,6 @@ using DSharpPlus.EventArgs;
 using DSharpPlus.Interactivity;
 using DSharpPlus.Net.WebSocket;
 using TkokDiscordBot.Configuration;
-using TkokDiscordBot.Core.Commands;
 using TkokDiscordBot.Core.Commands.Abstractions;
 using TkokDiscordBot.Core.Commands.Attributes;
 using TkokDiscordBot.Core.CommandsNext;
@@ -28,8 +26,9 @@ namespace TkokDiscordBot.Core
         private readonly EntClient _entClient;
         private readonly IItemsRepository _itemsRepository;
         private readonly IItemsStore _itemsStore;
+        private readonly GameStatusUpdater _gameStatusUpdater;
+        private readonly CurrentGameStore _currentGameStore;
         private readonly ISettings _settings;
-        private string _defaultMainChannelTopic = "General and Main-discussions - [English]";
         private DiscordChannel _mainChannel;
 
         public Bot(
@@ -38,7 +37,9 @@ namespace TkokDiscordBot.Core
             ISettings settings,
             EntClient entClient,
             IItemsRepository itemsRepository,
-            IItemsStore itemsStore)
+            IItemsStore itemsStore,
+            GameStatusUpdater gameStatusUpdater,
+            CurrentGameStore currentGameStore)
         {
             _botCommands = commands.OrderBy(c => (short?)c.GetType().GetAttribute<PriorityAttribute>()?.Priority ?? 0).ToList();
             _commandsNext = commandsNext;
@@ -46,7 +47,8 @@ namespace TkokDiscordBot.Core
             _entClient = entClient;
             _itemsRepository = itemsRepository;
             _itemsStore = itemsStore;
-            _entClient.GameInfoChanged += EntClientOnGameInfoChanged;
+            _gameStatusUpdater = gameStatusUpdater;
+            _currentGameStore = currentGameStore;
 
             InitializeDiscordClient();
             InitializeCommandsNext();
@@ -91,6 +93,7 @@ namespace TkokDiscordBot.Core
             dependencyCollectionBuilder.AddInstance(_entClient);
             dependencyCollectionBuilder.AddInstance(_itemsRepository);
             dependencyCollectionBuilder.AddInstance(_itemsStore);
+            dependencyCollectionBuilder.AddInstance(_currentGameStore);
 
             var commandsNextConfig = new CommandsNextConfiguration
             {
@@ -99,10 +102,11 @@ namespace TkokDiscordBot.Core
                 EnableDefaultHelp = false
             };
             Commands = Client.UseCommandsNext(commandsNextConfig);
-            foreach (var commandNext in _commandsNext)
-            {
-                
-            }
+            //Commands.RegisterCommands(GetType().Assembly);
+            //foreach (var commandNext in _commandsNext)
+            //{
+            //    Commands.RegisterCommands(commandNext.GetType());
+            //}
             Commands.RegisterCommands<PingCommand>();
             Commands.RegisterCommands<TrackCommand>();
             Commands.RegisterCommands<GameHostingCommand>();
@@ -129,18 +133,6 @@ namespace TkokDiscordBot.Core
 
         #region Discord Client Event Handlers
 
-        private async void EntClientOnGameInfoChanged(object sender, PropertyChangedEventArgs eventArgs)
-        {
-            if (eventArgs.PropertyName != nameof(EntClient.GameInfo)) return;
-
-            var lobbyInfo = _entClient.GameInfo;
-
-            if (lobbyInfo != null)
-                await _mainChannel.ModifyAsync("main", null, "Currently hosting: " + lobbyInfo);
-            else
-                await _mainChannel.ModifyAsync("main", null, _defaultMainChannelTopic);
-        }
-
         private Task OnClientErrored(ClientErrorEventArgs e)
         {
             e.Client.DebugLogger.LogMessage(LogLevel.Error, nameof(Bot),
@@ -159,10 +151,16 @@ namespace TkokDiscordBot.Core
         {
             await Task.Yield();
             _mainChannel = await Client.GetChannelAsync((ulong)_settings.MainChannelId);
-            _defaultMainChannelTopic = _mainChannel.Topic;
-            Client.DebugLogger.LogMessage(LogLevel.Info, nameof(Bot), "Ready! Setting status message..", DateTime.Now);
+
+            Client.DebugLogger.LogMessage(LogLevel.Info, nameof(Bot), "Ready! Setting status message...", DateTime.Now);
 
             await Client.UpdateStatusAsync(new DiscordGame("Creating SkyNet"));
+
+            _gameStatusUpdater.StartUpdating(new[]
+            {
+                _mainChannel, //main | General and Main-discussions - [English]
+                await Client.GetChannelAsync(378526759378878474) //hc-wagon-runs | Need HC boost? Can boost others? This channels is for you.
+            });
         }
 
         private async Task OnGuildMemberAdded(GuildMemberAddEventArgs e)

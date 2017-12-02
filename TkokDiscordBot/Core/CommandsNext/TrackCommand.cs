@@ -11,11 +11,11 @@ namespace TkokDiscordBot.Core.CommandsNext
 {
     internal class TrackCommand : ICommandNext
     {
-        private readonly EntClient _entClient;
+        private readonly CurrentGameStore _currentGameStore;
 
-        public TrackCommand(EntClient entClient)
+        public TrackCommand(CurrentGameStore currentGameStore)
         {
-            _entClient = entClient;
+            _currentGameStore = currentGameStore;
         }
 
         [Command("track")]
@@ -33,12 +33,12 @@ namespace TkokDiscordBot.Core.CommandsNext
             {
                 if (gameNameOrCommand == "disable")
                 {
-                    _entClient.GameInfo = null;
+                    _currentGameStore.Status = null;
                     await ctx.RespondAsync(":heavy_multiplication_x: Disabling game tracking.");
                 }
                 else
                 {
-                    _entClient.GameInfo = new LobbyStatus(gameNameOrCommand);
+                    _currentGameStore.Status = new LobbyStatus(gameNameOrCommand);
                     await ctx.RespondAsync($":eye: Monitoring game `{gameNameOrCommand}`.");
                 }
             }

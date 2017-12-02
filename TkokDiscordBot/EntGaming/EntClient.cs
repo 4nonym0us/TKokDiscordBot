@@ -1,14 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
-using Castle.Core.Internal;
 using TkokDiscordBot.Configuration;
 using TkokDiscordBot.EntGaming.Dto;
 
@@ -16,7 +13,7 @@ namespace TkokDiscordBot.EntGaming
 {
     //TODO: atm cient is singleton and it uses only one account.
     //Consider using account dispatcher, store cookies in cache and implement Polly policies to re-auth and refresh cookies for accounts
-    public class EntClient : IDisposable
+    internal class EntClient
     {
         private readonly string _baseUrl = "https://entgaming.net";
         private readonly CookieContainer _cookieContainer;
@@ -24,55 +21,16 @@ namespace TkokDiscordBot.EntGaming
         private readonly Regex _csrfTokenRegex =
             new Regex(@"<input type=\""hidden\"" name=\""sid\"" value=\""([a-f0-9]{32})\"" />", RegexOptions.Compiled);
 
-        private readonly Thread _gameInfoUpdaterThread;
-
         private readonly Regex _gameNameHostedRegex = new Regex(@"the gamename is <b>(\S+)</b>", RegexOptions.Compiled);
         private readonly Regex _gameNameRegex = new Regex(@"<b>GAMENAME: (\S+)</b>", RegexOptions.Compiled);
         private readonly ISettings _settings;
-        private LobbyStatus _gameInfo;
-        private bool _currentlyBeingHosted;
+        private readonly CurrentGameStore _currentGameStore;
 
-        public EntClient(ISettings settings)
+        public EntClient(ISettings settings, CurrentGameStore currentGameStore)
         {
             _settings = settings;
+            _currentGameStore = currentGameStore;
             _cookieContainer = new CookieContainer();
-
-            _gameInfoUpdaterThread = new Thread(GameInfoUpdater);
-            _gameInfoUpdaterThread.Start();
-        }
-
-        /// <summary>
-        ///     Status of current Game or null (if game doesn't exist).
-        /// </summary>
-        public LobbyStatus GameInfo
-        {
-            get => _gameInfo;
-            set
-            {
-                if (_gameInfo != value)
-                {
-                    _gameInfo = value;
-                    OnPropertyChanged(nameof(GameInfo));
-                    if (value != null && !value.GameName.IsNullOrEmpty() && value.GameName.StartsWith(_settings.EntUsername))
-                    {
-                        _currentlyBeingHosted = true;
-                    }
-                }
-            }
-        }
-
-        public void Dispose()
-        {
-            _gameInfoUpdaterThread.Abort();
-        }
-
-        private async void GameInfoUpdater()
-        {
-            while (true)
-            {
-                await UpdateBotStatus();
-                Thread.Sleep(TimeSpan.FromSeconds(10));
-            }
         }
 
         /// <summary>
@@ -92,7 +50,7 @@ namespace TkokDiscordBot.EntGaming
 
             await Login();
 
-            using (var handler = new HttpClientHandler {CookieContainer = _cookieContainer})
+            using (var handler = new HttpClientHandler { CookieContainer = _cookieContainer })
             using (var client = new HttpClient(handler))
             {
                 var content = new FormUrlEncodedContent(new[]
@@ -106,17 +64,15 @@ namespace TkokDiscordBot.EntGaming
                 var responseContent = await response.Content.ReadAsStringAsync();
                 if (_gameNameRegex.IsMatch(responseContent))
                 {
-                    GameInfo = new LobbyStatus(_gameNameRegex.Match(responseContent).Result("$1"));
-
-                    OnPropertyChanged(nameof(GameInfo));
-                    return new GameHostedResponse("New game was succesfully hosted.", GameInfo.GameName);
+                    _currentGameStore.Status = new LobbyStatus(_gameNameRegex.Match(responseContent).Result("$1"));
+                    
+                    return new GameHostedResponse("New game was succesfully hosted.", _currentGameStore.Status.GameName);
                 }
                 if (_gameNameHostedRegex.IsMatch(responseContent))
                 {
-                    GameInfo = new LobbyStatus(_gameNameHostedRegex.Match(responseContent).Result("$1"));
-
-                    OnPropertyChanged(nameof(GameInfo));
-                    return new GameHostedResponse("There is a game, which is beeing hosted.", GameInfo.GameName);
+                    _currentGameStore.Status = new LobbyStatus(_gameNameHostedRegex.Match(responseContent).Result("$1"));
+                    
+                    return new GameHostedResponse("There is a game, which is beeing hosted.", _currentGameStore.Status.GameName);
                 }
                 return new GameHostedResponse("Failed to host the game due to unknown error.");
             }
@@ -128,7 +84,7 @@ namespace TkokDiscordBot.EntGaming
         /// <returns></returns>
         public async Task Login()
         {
-            using (var handler = new HttpClientHandler {CookieContainer = _cookieContainer})
+            using (var handler = new HttpClientHandler { CookieContainer = _cookieContainer })
             using (var client = new HttpClient(handler))
             {
                 var tokenRequest = await client.GetStringAsync(_baseUrl + "/forum/ucp.php?mode=login");
@@ -156,66 +112,32 @@ namespace TkokDiscordBot.EntGaming
         }
 
         /// <summary>
-        ///     Uploads status of <see cref="GameInfo" />
+        ///     Returns the status of current game
         /// </summary>
         /// <returns></returns>
-        protected async Task UpdateBotStatus()
+        public async Task<LobbyStatus> GetBotStatus(string findByKeyword)
         {
+            if (string.IsNullOrWhiteSpace(findByKeyword))
+                throw new ArgumentNullException(nameof(findByKeyword));
+
             using (var client = new HttpClient())
             {
-                var response =
-                    await client.GetStringAsync("https://entgaming.net/forum/games_fast.php?no-cache=" +
-                                                Guid.NewGuid());
-                string gameDataStr = null;
-                if (GameInfo?.Id != null)
-                    gameDataStr = response
-                        .Split('\n')
-                        .FirstOrDefault(r =>
-                            r.IndexOf(GameInfo.Id.ToString(), StringComparison.OrdinalIgnoreCase) >= 0);
-                else if (!string.IsNullOrEmpty(GameInfo?.GameName))
-                    gameDataStr = response
-                        .Split('\n')
-                        .FirstOrDefault(r => r.IndexOf(GameInfo.GameName, StringComparison.OrdinalIgnoreCase) >= 0);
+                var response = await client.GetStringAsync("https://entgaming.net/forum/games_fast.php?no-cache=" + Guid.NewGuid());
+
+                var gameDataStr = response
+                    .Split('\n')
+                    .FirstOrDefault(r => r.IndexOf(findByKeyword, StringComparison.OrdinalIgnoreCase) >= 0);
 
                 if (gameDataStr == null)
                 {
-                    //Don't reset the GameInfo - game will be created soon
-                    if (_currentlyBeingHosted)
-                    {
-                        return;
-                    }
-
-                    GameInfo = null;
-                    return;
+                    return null;
                 }
 
-                //Game was hosted
-                _currentlyBeingHosted = false;
-
                 var gameData = gameDataStr.Split('|');
-                GameInfo = new LobbyStatus(
-                    gameData[5],
-                    Convert.ToInt32(gameData[0]),
-                    Convert.ToInt32(gameData[2]),
-                    Convert.ToInt32(gameData[3]));
+                var gameInfo = new LobbyStatus(gameData[5], int.Parse(gameData[0]), int.Parse(gameData[2]), int.Parse(gameData[3]));
+
+                return gameInfo;
             }
         }
-
-        #region INotifyPropertyChanged
-
-        public event PropertyChangedEventHandler GameInfoChanged;
-
-        protected void OnPropertyChanged(PropertyChangedEventArgs e)
-        {
-            var handler = GameInfoChanged;
-            handler?.Invoke(this, e);
-        }
-
-        protected void OnPropertyChanged(string propertyName)
-        {
-            OnPropertyChanged(new PropertyChangedEventArgs(propertyName));
-        }
-
-        #endregion
     }
 }
